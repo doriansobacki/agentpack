@@ -1,0 +1,5 @@
+agentpack
+agentpack.exe
+/dist/
+*.test
+coverage.out

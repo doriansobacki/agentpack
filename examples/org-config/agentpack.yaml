@@ -1,0 +1,17 @@
+# agentpack org manifest.
+# Groups map identity to packs; the special group "*" applies to everyone.
+# Hierarchy is expressed by giving users several groups (org -> team -> role).
+
+identity:
+  provider: static # group membership from the users: map below
+
+targets: [claude, agentsmd]
+
+groups:
+  "*": [org-baseline]
+  team-a: [team-a-core]
+  team-a/backend: [dotnet]
+  team-a/frontend: [react]
+
+users:
+  you@example.com: [team-a, team-a/backend]
