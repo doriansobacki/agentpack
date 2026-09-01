@@ -11,11 +11,12 @@
 package target
 
 import (
-	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
+
+	"github.com/doriansobacki/agentpack/internal/registry"
 )
 
 // File is one loaded content file from a pack.
@@ -129,41 +130,34 @@ type Target interface {
 	Apply(ctx *Context) (*Result, error)
 }
 
-var (
-	mu       sync.RWMutex
-	registry = map[string]Target{}
-)
+var targets = registry.New[Target]("target")
 
 // Register makes a target available by name. Registering the same name twice
 // panics: it is a programmer error in wiring, not a runtime condition.
-func Register(t Target) {
-	mu.Lock()
-	defer mu.Unlock()
-	if _, exists := registry[t.Name()]; exists {
-		panic(fmt.Sprintf("target: %q registered twice", t.Name()))
-	}
-	registry[t.Name()] = t
-}
+func Register(t Target) { targets.Register(t) }
 
 // Get returns the target registered under name.
-func Get(name string) (Target, error) {
-	mu.RLock()
-	defer mu.RUnlock()
-	t, ok := registry[name]
-	if !ok {
-		return nil, fmt.Errorf("target: unknown target %q (available: %v)", name, Names())
-	}
-	return t, nil
-}
+func Get(name string) (Target, error) { return targets.Get(name) }
 
 // Names lists registered targets, sorted.
-func Names() []string {
-	mu.RLock()
-	defer mu.RUnlock()
-	names := make([]string, 0, len(registry))
-	for n := range registry {
-		names = append(names, n)
+func Names() []string { return targets.Names() }
+
+// WriteGenerated writes a generated markdown file (header + content) into
+// ctx.GeneratedDir and returns a Result listing it. Empty content produces
+// nothing, so a stale file from a previous sync gets pruned. Single-file
+// targets (agentsmd, cursor, a future copilot) share this write path.
+func WriteGenerated(ctx *Context, filename, header, content string) (*Result, error) {
+	if content == "" {
+		return &Result{}, nil
 	}
-	sort.Strings(names)
-	return names
+	dest := filepath.Join(ctx.GeneratedDir, filename)
+	if !ctx.DryRun {
+		if err := os.MkdirAll(ctx.GeneratedDir, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(dest, []byte(header+content+"\n"), 0o644); err != nil {
+			return nil, err
+		}
+	}
+	return &Result{Files: []string{dest}}, nil
 }

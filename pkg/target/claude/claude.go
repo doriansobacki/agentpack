@@ -8,12 +8,16 @@ package claude
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/doriansobacki/agentpack/pkg/target"
 )
+
+// Name is this target's identifier in the org manifest's targets: list.
+const Name = "claude"
 
 // Target implements target.Target for Claude Code.
 type Target struct{}
@@ -22,7 +26,7 @@ type Target struct{}
 func New() *Target { return &Target{} }
 
 // Name implements target.Target.
-func (*Target) Name() string { return "claude" }
+func (*Target) Name() string { return Name }
 
 // Apply implements target.Target.
 func (*Target) Apply(ctx *target.Context) (*target.Result, error) {
@@ -175,14 +179,29 @@ func copyTree(src, dest string, dryRun bool) ([]string, error) {
 		if dryRun {
 			return nil
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(out, data, 0o644)
+		return copyFile(path, out)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return files, nil
+}
+
+// copyFile streams src into dst with constant memory, so large skill support
+// files (datasets, binaries) are not buffered whole on the heap.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

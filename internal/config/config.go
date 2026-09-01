@@ -45,7 +45,6 @@ func (c *UserConfig) Save() error {
 // files that are no longer part of the user's resolved package set.
 type State struct {
 	LastSync time.Time `json:"lastSync"`
-	Source   string    `json:"source"`
 	Packages []string  `json:"packages"`
 	// Files lists every file agentpack wrote (absolute paths). Anything in
 	// this list that a subsequent sync does not write again gets deleted.
