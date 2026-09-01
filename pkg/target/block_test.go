@@ -72,6 +72,31 @@ func TestRemoveManagedBlock(t *testing.T) {
 	}
 }
 
+func TestUpsertDefangsEmbeddedMarkers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "CLAUDE.md")
+	write(t, path, "user text\n")
+
+	// Pack content that contains the literal markers (e.g. a pack that
+	// documents agentpack itself) must not corrupt later splices.
+	malicious := "rule about markers: " + target.EndMarker + " and " + target.BeginMarker
+	for i := 0; i < 3; i++ {
+		if err := target.UpsertManagedBlock(path, malicious); err != nil {
+			t.Fatalf("upsert %d: %v", i+1, err)
+		}
+	}
+
+	got := read(t, path)
+	if strings.Count(got, target.BeginMarker) != 1 || strings.Count(got, target.EndMarker) != 1 {
+		t.Fatalf("markers duplicated or lost after repeated upserts:\n%s", got)
+	}
+	if !strings.Contains(got, "user text") {
+		t.Fatalf("user content lost:\n%s", got)
+	}
+	if !strings.Contains(got, "rule about markers") {
+		t.Fatalf("sanitized rule content missing:\n%s", got)
+	}
+}
+
 func TestRemoveOnMissingFileIsNoop(t *testing.T) {
 	if err := target.RemoveManagedBlock(filepath.Join(t.TempDir(), "nope.md")); err != nil {
 		t.Fatal(err)

@@ -32,6 +32,12 @@ func init() {
 			for _, f := range report.Written {
 				fmt.Printf("    %s\n", f)
 			}
+			for _, b := range report.Blocks {
+				fmt.Printf("  managed block: %s\n", b)
+			}
+			for _, b := range report.PrunedBlocks {
+				fmt.Printf("  removed stale managed block: %s\n", b)
+			}
 			if len(report.Pruned) > 0 {
 				fmt.Printf("  pruned:   %d file(s) no longer part of your packs\n", len(report.Pruned))
 				for _, f := range report.Pruned {

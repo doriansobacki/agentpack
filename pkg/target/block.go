@@ -18,8 +18,12 @@ const blockNotice = "<!-- Managed by agentpack. Everything between the markers i
 
 // UpsertManagedBlock inserts or replaces the agentpack-managed block in the
 // file at path, creating the file (and parent directories) if needed. Content
-// outside the markers is preserved.
+// outside the markers is preserved. Literal marker strings inside the content
+// are defanged: an embedded marker would make the next sync splice the file
+// at the wrong position and leak old block content into the user's portion.
 func UpsertManagedBlock(path, content string) error {
+	content = strings.ReplaceAll(content, BeginMarker, "(agentpack begin marker)")
+	content = strings.ReplaceAll(content, EndMarker, "(agentpack end marker)")
 	block := BeginMarker + "\n" + blockNotice + "\n\n" + strings.TrimSpace(content) + "\n" + EndMarker
 
 	existing, err := os.ReadFile(path)
