@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 
+	"github.com/doriansobacki/agentpack/pkg/identity/static"
+	"github.com/doriansobacki/agentpack/pkg/target/agentsmd"
+	"github.com/doriansobacki/agentpack/pkg/target/claude"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,10 +41,12 @@ type IdentityConfig struct {
 	Options map[string]any `yaml:",inline"`
 }
 
-// ProviderName returns the configured provider, defaulting to "static".
+// ProviderName returns the configured provider, defaulting to the static
+// provider. Defaults reference the implementations' exported Name constants,
+// so a rename cannot silently diverge from the registry.
 func (m *Manifest) ProviderName() string {
 	if m.Identity.Provider == "" {
-		return "static"
+		return static.Name
 	}
 	return m.Identity.Provider
 }
@@ -50,7 +54,7 @@ func (m *Manifest) ProviderName() string {
 // TargetNames returns the configured targets, defaulting to claude+agentsmd.
 func (m *Manifest) TargetNames() []string {
 	if len(m.Targets) == 0 {
-		return []string{"claude", "agentsmd"}
+		return []string{claude.Name, agentsmd.Name}
 	}
 	return m.Targets
 }
@@ -70,7 +74,6 @@ type Package struct {
 
 // Org is a fully loaded org config repository.
 type Org struct {
-	Root     string
 	Manifest *Manifest
 	Packages map[string]*Package
 }
@@ -114,7 +117,7 @@ func Load(root string) (*Org, error) {
 		packages[pkg.ID] = pkg
 	}
 
-	return &Org{Root: root, Manifest: &m, Packages: packages}, nil
+	return &Org{Manifest: &m, Packages: packages}, nil
 }
 
 // RuleFiles returns the package's rules/*.md, sorted by name.
@@ -143,7 +146,7 @@ func (p *Package) SkillDirs() []string {
 			dirs = append(dirs, dir)
 		}
 	}
-	sort.Strings(dirs)
+	// os.ReadDir returns entries sorted by filename, so dirs is sorted.
 	return dirs
 }
 
@@ -159,6 +162,6 @@ func mdFiles(dir string) []string {
 		}
 		files = append(files, filepath.Join(dir, e.Name()))
 	}
-	sort.Strings(files)
+	// os.ReadDir returns entries sorted by filename, so files is sorted.
 	return files
 }

@@ -13,6 +13,9 @@ import (
 	"github.com/doriansobacki/agentpack/pkg/identity"
 )
 
+// Name is this provider's identifier in the org manifest's identity: section.
+const Name = "static"
+
 // Provider resolves groups from the org manifest's users map.
 type Provider struct{}
 
@@ -20,7 +23,7 @@ type Provider struct{}
 func New() *Provider { return &Provider{} }
 
 // Name implements identity.Provider.
-func (*Provider) Name() string { return "static" }
+func (*Provider) Name() string { return Name }
 
 // Resolve implements identity.Provider. Email matching is case-insensitive.
 // An email absent from the users map is an error, per the Provider contract:

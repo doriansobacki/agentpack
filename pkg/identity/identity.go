@@ -10,9 +10,8 @@ package identity
 
 import (
 	"context"
-	"fmt"
-	"sort"
-	"sync"
+
+	"github.com/doriansobacki/agentpack/internal/registry"
 )
 
 // Identity is the resolved user: an email plus the groups they belong to.
@@ -45,41 +44,14 @@ type Provider interface {
 	Resolve(ctx context.Context, req Request) (*Identity, error)
 }
 
-var (
-	mu       sync.RWMutex
-	registry = map[string]Provider{}
-)
+var providers = registry.New[Provider]("identity provider")
 
 // Register makes a provider available by name. Registering the same name
 // twice panics: it is a programmer error in wiring, not a runtime condition.
-func Register(p Provider) {
-	mu.Lock()
-	defer mu.Unlock()
-	if _, exists := registry[p.Name()]; exists {
-		panic(fmt.Sprintf("identity: provider %q registered twice", p.Name()))
-	}
-	registry[p.Name()] = p
-}
+func Register(p Provider) { providers.Register(p) }
 
 // Get returns the provider registered under name.
-func Get(name string) (Provider, error) {
-	mu.RLock()
-	defer mu.RUnlock()
-	p, ok := registry[name]
-	if !ok {
-		return nil, fmt.Errorf("identity: unknown provider %q (available: %v)", name, Names())
-	}
-	return p, nil
-}
+func Get(name string) (Provider, error) { return providers.Get(name) }
 
 // Names lists registered providers, sorted.
-func Names() []string {
-	mu.RLock()
-	defer mu.RUnlock()
-	names := make([]string, 0, len(registry))
-	for n := range registry {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
-}
+func Names() []string { return providers.Names() }

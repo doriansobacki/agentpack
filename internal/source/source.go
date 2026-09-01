@@ -12,10 +12,25 @@ import (
 	"path/filepath"
 )
 
+// NormalizeLocal reports whether src is a local directory and, if so,
+// returns its absolute path. It is the single definition of "the source is
+// a local directory", shared by login (which persists the source) and Fetch.
+func NormalizeLocal(src string) (string, bool) {
+	info, err := os.Stat(src)
+	if err != nil || !info.IsDir() {
+		return src, false
+	}
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return src, false
+	}
+	return abs, true
+}
+
 // Fetch makes the org config available locally and returns its directory.
 func Fetch(src, cacheDir string) (string, error) {
-	if info, err := os.Stat(src); err == nil && info.IsDir() {
-		return filepath.Abs(src)
+	if dir, ok := NormalizeLocal(src); ok {
+		return dir, nil
 	}
 
 	sum := sha256.Sum256([]byte(src))
