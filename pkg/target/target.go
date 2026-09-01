@@ -12,7 +12,9 @@ package target
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -59,6 +61,8 @@ type Context struct {
 	PreviouslyOwned map[string]bool
 	// DryRun means: report what would be written, write nothing.
 	DryRun bool
+
+	claimed map[string]string
 }
 
 // Owns reports whether path may be overwritten: either agentpack wrote it on
@@ -67,12 +71,51 @@ func (c *Context) Owns(path string, exists bool) bool {
 	return !exists || c.PreviouslyOwned[path]
 }
 
+// Claim records that packID provides the destination path in this run. The
+// first pack to claim a path wins deterministically; a later claim returns
+// the winning pack's ID and false, and the caller must skip its write. This
+// keeps sync idempotent when two packs ship a same-named file.
+func (c *Context) Claim(path, packID string) (owner string, ok bool) {
+	if c.claimed == nil {
+		c.claimed = map[string]string{}
+	}
+	if owner, taken := c.claimed[path]; taken {
+		return owner, false
+	}
+	c.claimed[path] = packID
+	return packID, true
+}
+
+// RetainOwnedUnder returns the previously-owned files inside dir. A target
+// that skips a surface to protect foreign files must report these as
+// retained, so the syncer neither prunes them nor forgets it owns them.
+func (c *Context) RetainOwnedUnder(dir string) []string {
+	var kept []string
+	prefix := dir + string(filepath.Separator)
+	for p := range c.PreviouslyOwned {
+		if p == dir || strings.HasPrefix(p, prefix) {
+			kept = append(kept, p)
+		}
+	}
+	sort.Strings(kept)
+	return kept
+}
+
 // Result is what a target produced.
 type Result struct {
 	// Files are the absolute paths written (or that would be written, under
 	// DryRun). They are recorded in the sync state and pruned when a later
 	// sync stops producing them.
 	Files []string
+	// Retained are previously-owned paths the target deliberately left in
+	// place without rewriting (e.g. inside a skill directory skipped because
+	// a foreign file appeared in it). They stay in the sync state and are
+	// excluded from pruning.
+	Retained []string
+	// Blocks are files that contain an agentpack-managed block after this
+	// sync. The syncer tracks them in state and removes the block when a
+	// later sync stops producing it (e.g. the target was dropped).
+	Blocks []string
 	// Warnings are non-fatal issues to surface to the user (e.g. a skill
 	// skipped because a foreign file already occupies its destination).
 	Warnings []string

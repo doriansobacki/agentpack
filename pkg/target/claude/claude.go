@@ -41,7 +41,7 @@ func (*Target) Apply(ctx *target.Context) (*target.Result, error) {
 		}
 	}
 
-	if err := applyMemoryBlock(ctx); err != nil {
+	if err := applyMemoryBlock(ctx, res); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -50,12 +50,21 @@ func (*Target) Apply(ctx *target.Context) (*target.Result, error) {
 func applySkill(ctx *target.Context, res *target.Result, pack *target.Pack, skill target.SkillDir) error {
 	dest := filepath.Join(ctx.ClaudeDir, "skills", skill.Name)
 
-	// A destination we did not create belongs to the user: skip, never clobber.
+	if owner, ok := ctx.Claim(dest, pack.ID); !ok {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("skill %q is provided by packs %s and %s; keeping %s's version", skill.Name, owner, pack.ID, owner))
+		return nil
+	}
+
+	// A destination holding files we did not create belongs to the user:
+	// skip the write, and retain what we do own there so the syncer neither
+	// prunes it (which would half-delete the skill) nor forgets we own it.
 	if foreign, err := isForeign(ctx, dest); err != nil {
 		return err
 	} else if foreign {
+		res.Retained = append(res.Retained, ctx.RetainOwnedUnder(dest)...)
 		res.Warnings = append(res.Warnings,
-			fmt.Sprintf("skill %q (pack %s): %s already exists and was not created by agentpack; skipped", skill.Name, pack.ID, dest))
+			fmt.Sprintf("skill %q (pack %s): %s contains files not created by agentpack; left untouched", skill.Name, pack.ID, dest))
 		return nil
 	}
 
@@ -69,6 +78,13 @@ func applySkill(ctx *target.Context, res *target.Result, pack *target.Pack, skil
 
 func applyAgent(ctx *target.Context, res *target.Result, pack *target.Pack, agent target.File) error {
 	dest := filepath.Join(ctx.ClaudeDir, "agents", agent.Name)
+
+	if owner, ok := ctx.Claim(dest, pack.ID); !ok {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("agent %q is provided by packs %s and %s; keeping %s's version", agent.Name, owner, pack.ID, owner))
+		return nil
+	}
+
 	_, statErr := os.Stat(dest)
 	exists := statErr == nil
 	if !ctx.Owns(dest, exists) {
@@ -88,14 +104,18 @@ func applyAgent(ctx *target.Context, res *target.Result, pack *target.Pack, agen
 	return nil
 }
 
-func applyMemoryBlock(ctx *target.Context) error {
-	claudeMD := filepath.Join(ctx.ClaudeDir, "CLAUDE.md")
+// applyMemoryBlock writes the rules+memories block and reports it via
+// Result.Blocks. Removal of a stale block (content gone, or this target no
+// longer configured) is the syncer's job, driven by the tracked state.
+func applyMemoryBlock(ctx *target.Context, res *target.Result) error {
 	content := target.MergedMarkdown(ctx.Packs, true)
-	if ctx.DryRun {
+	if content == "" {
 		return nil
 	}
-	if content == "" {
-		return target.RemoveManagedBlock(claudeMD)
+	claudeMD := filepath.Join(ctx.ClaudeDir, "CLAUDE.md")
+	res.Blocks = append(res.Blocks, claudeMD)
+	if ctx.DryRun {
+		return nil
 	}
 	return target.UpsertManagedBlock(claudeMD, content)
 }

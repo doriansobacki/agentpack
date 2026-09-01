@@ -28,9 +28,14 @@ type Report struct {
 	SourceDir string
 	DryRun    bool
 
-	Written  []string
-	Pruned   []string
-	Warnings []string
+	Written []string
+	// Blocks are files carrying an agentpack-managed block after this sync.
+	Blocks []string
+	// PrunedBlocks are files whose managed block was removed because no
+	// target produces it anymore.
+	PrunedBlocks []string
+	Pruned       []string
+	Warnings     []string
 }
 
 // Sync runs one full sync cycle.
@@ -101,27 +106,71 @@ func Sync(ctx context.Context, dryRun bool) (*Report, error) {
 		DryRun:          dryRun,
 	}
 
-	written := map[string]bool{}
+	// Resolve every target before applying any, so a typo'd target name in
+	// the manifest fails the sync without writing a single file.
+	targets := make([]target.Target, 0, len(report.Targets))
 	for _, name := range report.Targets {
 		t, err := target.Get(name)
 		if err != nil {
 			return nil, err
 		}
+		targets = append(targets, t)
+	}
+
+	// current = files that belong to agentpack after this sync: everything
+	// written plus everything deliberately retained. It becomes the new
+	// state and the survivor set for pruning.
+	current := map[string]bool{}
+	var currentList []string
+	keep := func(paths []string) {
+		for _, f := range paths {
+			if !current[f] {
+				current[f] = true
+				currentList = append(currentList, f)
+			}
+		}
+	}
+	blocks := map[string]bool{}
+	var blockList []string
+
+	for _, t := range targets {
 		res, err := t.Apply(tctx)
 		if err != nil {
-			return nil, fmt.Errorf("target %s: %w", name, err)
+			// Files written before the failure must not be forgotten:
+			// without state they would be treated as foreign forever. Merge
+			// them into the previous state and persist best-effort.
+			if !dryRun {
+				salvage := &config.State{
+					LastSync:      prevState.LastSync,
+					Packages:      prevState.Packages,
+					Files:         union(prevState.Files, currentList),
+					ManagedBlocks: union(prevState.ManagedBlocks, blockList),
+				}
+				if saveErr := salvage.Save(); saveErr != nil {
+					return nil, fmt.Errorf("target %s: %w (and saving partial state failed: %v)", t.Name(), err, saveErr)
+				}
+			}
+			return nil, fmt.Errorf("target %s: %w", t.Name(), err)
 		}
 		for _, f := range res.Files {
-			if !written[f] {
-				written[f] = true
+			if !current[f] {
 				report.Written = append(report.Written, f)
+			}
+		}
+		keep(res.Files)
+		keep(res.Retained)
+		for _, b := range res.Blocks {
+			if !blocks[b] {
+				blocks[b] = true
+				blockList = append(blockList, b)
 			}
 		}
 		report.Warnings = append(report.Warnings, res.Warnings...)
 	}
+	report.Blocks = blockList
 
 	for _, old := range prevState.Files {
-		if written[old] {
+		if current[old] {
 			continue
 		}
 		report.Pruned = append(report.Pruned, old)
@@ -129,24 +178,57 @@ func Sync(ctx context.Context, dryRun bool) (*Report, error) {
 			continue
 		}
 		if err := os.Remove(old); err != nil && !os.IsNotExist(err) {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("pruning %s: %v", old, err))
+			report.Warnings = append(report.Warnings, fmt.Sprintf("pruning %s: %v (will retry next sync)", old, err))
+			// Keep the path in state so the prune is retried and the file
+			// is still recognized as agentpack-owned.
+			keep([]string{old})
 			continue
 		}
 		removeEmptyParents(filepath.Dir(old))
 	}
 
+	for _, old := range prevState.ManagedBlocks {
+		if blocks[old] {
+			continue
+		}
+		report.PrunedBlocks = append(report.PrunedBlocks, old)
+		if dryRun {
+			continue
+		}
+		if err := target.RemoveManagedBlock(old); err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("removing managed block from %s: %v (will retry next sync)", old, err))
+			blocks[old] = true
+			blockList = append(blockList, old)
+		}
+	}
+
 	if !dryRun {
 		newState := &config.State{
-			LastSync: time.Now().UTC(),
-			Source:   cfg.Source,
-			Packages: packageIDs,
-			Files:    report.Written,
+			LastSync:      time.Now().UTC(),
+			Packages:      packageIDs,
+			Files:         currentList,
+			ManagedBlocks: blockList,
 		}
 		if err := newState.Save(); err != nil {
 			return nil, err
 		}
 	}
 	return report, nil
+}
+
+// union merges two path lists, preserving order and dropping duplicates.
+func union(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, list := range [][]string{a, b} {
+		for _, f := range list {
+			if !seen[f] {
+				seen[f] = true
+				out = append(out, f)
+			}
+		}
+	}
+	return out
 }
 
 func loadPacks(org *orgcfg.Org, ids []string) (packs []*target.Pack, warnings []string) {

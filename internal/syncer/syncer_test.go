@@ -2,14 +2,17 @@ package syncer_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/doriansobacki/agentpack/internal/builtins"
 	"github.com/doriansobacki/agentpack/internal/config"
 	"github.com/doriansobacki/agentpack/internal/syncer"
+	"github.com/doriansobacki/agentpack/pkg/target"
 )
 
 const manifestFull = `
@@ -141,6 +144,184 @@ func TestSyncDoesNotClobberForeignFiles(t *testing.T) {
 	}
 	if len(report.Warnings) == 0 {
 		t.Fatal("expected a warning about the skipped skill")
+	}
+}
+
+func TestForeignFileInsideOwnedSkillIsRetained(t *testing.T) {
+	setup(t)
+	if _, err := syncer.Sync(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+
+	claudeDir := os.Getenv("AGENTPACK_CLAUDE_DIR")
+	skillDir := filepath.Join(claudeDir, "skills", "dotnet-testing")
+	skillMD := filepath.Join(skillDir, "SKILL.md")
+
+	// User drops a personal file into the agentpack-owned skill directory.
+	if err := os.WriteFile(filepath.Join(skillDir, "notes.md"), []byte("my notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The next syncs must neither prune SKILL.md nor touch notes.md.
+	for i := 0; i < 2; i++ {
+		report, err := syncer.Sync(context.Background(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(skillMD); err != nil {
+			t.Fatalf("sync %d pruned SKILL.md out of a skipped skill: %v", i+2, err)
+		}
+		if got := read(t, filepath.Join(skillDir, "notes.md")); got != "my notes" {
+			t.Fatalf("user file modified: %q", got)
+		}
+		if len(report.Warnings) == 0 {
+			t.Fatal("expected a warning about the untouched skill")
+		}
+	}
+}
+
+func TestDuplicateAgentAcrossPacksIsDeterministic(t *testing.T) {
+	orgDir := setup(t)
+
+	// A second pack ships an agent with the same file name as dotnet's,
+	// and the user receives both packs.
+	extra := filepath.Join(orgDir, "packages", "extra", "agents", "dotnet-reviewer.md")
+	if err := os.MkdirAll(filepath.Dir(extra), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extra, []byte("impostor agent"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `
+targets: [claude, agentsmd]
+groups:
+  "*": [org-baseline]
+  team-a: [dotnet, extra]
+users:
+  dev@example.com: [team-a]
+`
+	if err := os.WriteFile(filepath.Join(orgDir, "agentpack.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agentPath := filepath.Join(os.Getenv("AGENTPACK_CLAUDE_DIR"), "agents", "dotnet-reviewer.md")
+	for i := 0; i < 2; i++ {
+		report, err := syncer.Sync(context.Background(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// First pack in resolution order (dotnet) must win on EVERY sync.
+		if got := read(t, agentPath); got != "reviewer agent" {
+			t.Fatalf("sync %d: winner flipped, agent content = %q", i+1, got)
+		}
+		found := false
+		for _, w := range report.Warnings {
+			if strings.Contains(w, "provided by packs") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("sync %d: expected a duplicate-provider warning, got %v", i+1, report.Warnings)
+		}
+	}
+}
+
+func TestUnknownTargetWritesNothing(t *testing.T) {
+	orgDir := setup(t)
+	manifest := strings.Replace(manifestFull, "[claude, agentsmd]", "[claude, nope]", 1)
+	if err := os.WriteFile(filepath.Join(orgDir, "agentpack.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncer.Sync(context.Background(), false); err == nil {
+		t.Fatal("expected an unknown-target error")
+	}
+	claudeDir := os.Getenv("AGENTPACK_CLAUDE_DIR")
+	if _, err := os.Stat(claudeDir); !os.IsNotExist(err) {
+		t.Fatalf("unknown target still let files be written under %s", claudeDir)
+	}
+}
+
+type boomTarget struct{}
+
+func (boomTarget) Name() string { return "boom" }
+func (boomTarget) Apply(*target.Context) (*target.Result, error) {
+	return nil, errors.New("boom")
+}
+
+var registerBoom sync.Once
+
+func TestTargetFailureSalvagesState(t *testing.T) {
+	registerBoom.Do(func() { target.Register(boomTarget{}) })
+	orgDir := setup(t)
+	manifest := strings.Replace(manifestFull, "[claude, agentsmd]", "[claude, boom]", 1)
+	if err := os.WriteFile(filepath.Join(orgDir, "agentpack.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The claude target writes its files, then boom fails the sync.
+	if _, err := syncer.Sync(context.Background(), false); err == nil {
+		t.Fatal("expected the boom target to fail the sync")
+	}
+
+	// After fixing the manifest, the files written before the failure must
+	// be recognized as agentpack-owned — updated, not skipped as foreign.
+	if err := os.WriteFile(filepath.Join(orgDir, "agentpack.yaml"), []byte(manifestFull), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := syncer.Sync(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range report.Warnings {
+		if strings.Contains(w, "not created by agentpack") {
+			t.Fatalf("agentpack's own pre-failure files treated as foreign: %v", report.Warnings)
+		}
+	}
+	skillPath := filepath.Join(os.Getenv("AGENTPACK_CLAUDE_DIR"), "skills", "dotnet-testing", "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Fatalf("expected %s to be managed after recovery: %v", skillPath, err)
+	}
+}
+
+func TestDroppingClaudeTargetRemovesManagedBlock(t *testing.T) {
+	orgDir := setup(t)
+	if _, err := syncer.Sync(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	claudeMD := filepath.Join(os.Getenv("AGENTPACK_CLAUDE_DIR"), "CLAUDE.md")
+	if got := read(t, claudeMD); !strings.Contains(got, target.BeginMarker) {
+		t.Fatalf("expected a managed block after first sync:\n%s", got)
+	}
+
+	manifest := strings.Replace(manifestFull, "[claude, agentsmd]", "[agentsmd]", 1)
+	if err := os.WriteFile(filepath.Join(orgDir, "agentpack.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := syncer.Sync(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.PrunedBlocks) != 1 {
+		t.Fatalf("expected one pruned block, got %v", report.PrunedBlocks)
+	}
+	if got := read(t, claudeMD); strings.Contains(got, target.BeginMarker) || strings.Contains(got, "org rule") {
+		t.Fatalf("stale managed block survived dropping the claude target:\n%s", got)
+	}
+}
+
+func TestUnknownEmailErrors(t *testing.T) {
+	setup(t)
+	cfg, err := config.LoadUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Email = "typo@example.com"
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = syncer.Sync(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "not listed") {
+		t.Fatalf("expected an unknown-email error, got %v", err)
 	}
 }
 

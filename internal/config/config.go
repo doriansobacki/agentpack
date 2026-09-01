@@ -50,6 +50,10 @@ type State struct {
 	// Files lists every file agentpack wrote (absolute paths). Anything in
 	// this list that a subsequent sync does not write again gets deleted.
 	Files []string `json:"files"`
+	// ManagedBlocks lists files containing an agentpack-managed block. A
+	// block a subsequent sync stops producing is removed from its file
+	// (the file itself is never deleted).
+	ManagedBlocks []string `json:"managedBlocks,omitempty"`
 }
 
 // LoadState reads the last sync state; a missing file yields an empty state.

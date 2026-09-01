@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
-	"github.com/doriansobacki/agentpack/internal/orgcfg"
 	"github.com/spf13/cobra"
 )
 
@@ -19,9 +20,18 @@ func init() {
 			if len(args) == 1 {
 				dir = args[0]
 			}
-			manifest := filepath.Join(dir, orgcfg.ManifestFileName)
-			if _, err := os.Stat(manifest); err == nil {
-				return fmt.Errorf("%s already exists; refusing to overwrite", manifest)
+			// Refuse if ANY scaffold path exists — not just the manifest —
+			// so init never overwrites customized package content.
+			var existing []string
+			for rel := range scaffold {
+				path := filepath.Join(dir, filepath.FromSlash(rel))
+				if _, err := os.Stat(path); err == nil {
+					existing = append(existing, path)
+				}
+			}
+			if len(existing) > 0 {
+				sort.Strings(existing)
+				return fmt.Errorf("refusing to overwrite existing files:\n  %s", strings.Join(existing, "\n  "))
 			}
 			for rel, content := range scaffold {
 				path := filepath.Join(dir, filepath.FromSlash(rel))

@@ -7,6 +7,7 @@ package static
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/doriansobacki/agentpack/pkg/identity"
@@ -22,17 +23,26 @@ func New() *Provider { return &Provider{} }
 func (*Provider) Name() string { return "static" }
 
 // Resolve implements identity.Provider. Email matching is case-insensitive.
+// An email absent from the users map is an error, per the Provider contract:
+// returning an empty identity instead would make a typo'd login silently
+// resolve to wildcard-only packs and prune the user's team content.
 func (*Provider) Resolve(_ context.Context, req identity.Request) (*identity.Identity, error) {
 	if req.Email == "" {
 		return nil, fmt.Errorf("static provider: no email configured; run `agentpack login <email>`")
 	}
-	want := strings.ToLower(req.Email)
-	for email, groups := range req.StaticUsers {
-		if strings.ToLower(email) == want {
-			return &identity.Identity{Email: req.Email, Groups: groups}, nil
+	var matches []string
+	for email := range req.StaticUsers {
+		if strings.EqualFold(email, req.Email) {
+			matches = append(matches, email)
 		}
 	}
-	// Unknown users still get the identity — they receive only the packages
-	// mapped to the wildcard group. The syncer surfaces a warning.
-	return &identity.Identity{Email: req.Email, Groups: nil}, nil
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("static provider: %s is not listed in the org manifest's users: map", req.Email)
+	case 1:
+		return &identity.Identity{Email: req.Email, Groups: req.StaticUsers[matches[0]]}, nil
+	default:
+		sort.Strings(matches)
+		return nil, fmt.Errorf("static provider: users: contains entries differing only in case (%s); remove the duplicates", strings.Join(matches, ", "))
+	}
 }
