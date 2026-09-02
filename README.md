@@ -21,11 +21,20 @@ of by repository.
 Per-repository configuration (a repo's own `CLAUDE.md`/`AGENTS.md`) stays
 where it is; agentpack covers everything *above* the repository level.
 
+## Install
+
+Prebuilt binaries for Windows, macOS, and Linux (amd64/arm64) are attached to
+each [GitHub Release](https://github.com/doriansobacki/agentpack/releases).
+With a Go toolchain, `go install github.com/doriansobacki/agentpack@latest`
+also works.
+
+Scoop, Homebrew tap, and winget manifests are wired into the release
+pipeline and will be activated when the repository goes public (a private
+repo's release assets are not downloadable by package managers).
+
 ## Quickstart
 
 ```sh
-go install github.com/doriansobacki/agentpack@latest
-
 # 1. An admin scaffolds and publishes the org config repo
 agentpack init my-org-config
 cd my-org-config && git init && git add -A && git commit -m "org config" && git push ...
