@@ -102,10 +102,11 @@ agentpack is deliberately open at the two seams that vary between
 organizations:
 
 **Identity providers** (`pkg/identity`) answer "who is this user, and which
-groups do they belong to?" The built-in `static` provider reads the manifest's
-`users:` map. Planned: Microsoft Entra (device-code flow, groups from token
-claims); any directory service can be added by implementing a two-method
-interface and registering it.
+groups do they belong to?" Built-ins: `static` (reads the manifest's `users:`
+map) and `entra` (Microsoft Entra ID: device-code sign-in, groups from token
+claims with a Microsoft Graph fallback — see the
+[admin guide](docs/entra.md)). Any directory service can be added by
+implementing a two-method interface and registering it.
 
 **Targets** (`pkg/target`) answer "how does this tool consume configuration?"
 Built-ins: `claude` (full fidelity: skills, agents, managed CLAUDE.md block),
@@ -121,7 +122,6 @@ stabilize.
 
 ## Roadmap
 
-- **Entra ID provider**: device-code sign-in, group membership from the token.
 - **Copilot target**: org custom instructions via the GitHub API.
 - **Cursor**: push Team Rules through the dashboard API.
 - **Watch mode / background daemon**: near-real-time propagation.

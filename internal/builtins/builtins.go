@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/doriansobacki/agentpack/pkg/identity"
+	"github.com/doriansobacki/agentpack/pkg/identity/entra"
 	"github.com/doriansobacki/agentpack/pkg/identity/static"
 	"github.com/doriansobacki/agentpack/pkg/target"
 	"github.com/doriansobacki/agentpack/pkg/target/agentsmd"
@@ -21,6 +22,7 @@ var once sync.Once
 func Register() {
 	once.Do(func() {
 		identity.Register(static.New())
+		identity.Register(entra.New())
 		target.Register(claude.New())
 		target.Register(agentsmd.New())
 		target.Register(cursor.New())
