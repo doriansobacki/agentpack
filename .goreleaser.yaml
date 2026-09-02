@@ -1,0 +1,93 @@
+version: 2
+
+project_name: agentpack
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agentpack
+    main: .
+    binary: agentpack
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/doriansobacki/agentpack/cmd.Version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^ci"
+      - "^chore"
+
+# The brew and scoop manifests are wired up but not published yet
+# (skip_upload: true): while this repository is private, release assets are
+# not downloadable without auth, so a public tap/bucket would be broken.
+# When the project goes public:
+#   1. Create the doriansobacki/homebrew-tap and doriansobacki/scoop-bucket
+#      repos (empty, public).
+#   2. Add a repo secret TAP_GITHUB_TOKEN (PAT with contents:write on both)
+#      and pass it to goreleaser in release.yml as GITHUB_TOKEN for these
+#      publishers — or keep GITHUB_TOKEN if the repos accept it.
+#   3. Flip skip_upload to "auto" ("auto" also skips prereleases).
+homebrew_casks:
+  - name: agentpack
+    repository:
+      owner: doriansobacki
+      name: homebrew-tap
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/doriansobacki/agentpack
+    description: "Identity-based distribution of AI coding agent config across an organization"
+    skip_upload: true
+    # The binaries are not notarized; strip the quarantine flag on install
+    # so Gatekeeper does not block them.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentpack"]
+          end
+
+scoops:
+  - name: agentpack
+    repository:
+      owner: doriansobacki
+      name: scoop-bucket
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    directory: bucket
+    homepage: https://github.com/doriansobacki/agentpack
+    description: "Identity-based distribution of AI coding agent config across an organization"
+    license: MIT
+    skip_upload: true
+
+release:
+  footer: |
+    ---
+    Install by downloading the archive for your platform above, or with
+    `go install github.com/doriansobacki/agentpack@{{ .Tag }}`.
