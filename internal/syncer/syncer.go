@@ -20,13 +20,12 @@ import (
 
 // Report summarizes what a sync did (or, under DryRun, would do).
 type Report struct {
-	Email     string
-	Provider  string
-	Groups    []string
-	Packages  []string
-	Targets   []string
-	SourceDir string
-	DryRun    bool
+	Email    string
+	Provider string
+	Groups   []string
+	Packages []string
+	Targets  []string
+	DryRun   bool
 
 	Written []string
 	// Blocks are files carrying an agentpack-managed block after this sync.
@@ -55,11 +54,10 @@ func Sync(ctx context.Context, dryRun bool) (*Report, error) {
 	}
 
 	report := &Report{
-		Email:     cfg.Email,
-		Provider:  org.Manifest.ProviderName(),
-		Targets:   org.Manifest.TargetNames(),
-		SourceDir: srcDir,
-		DryRun:    dryRun,
+		Email:    cfg.Email,
+		Provider: org.Manifest.ProviderName(),
+		Targets:  org.Manifest.TargetNames(),
+		DryRun:   dryRun,
 	}
 
 	provider, err := identity.Get(report.Provider)

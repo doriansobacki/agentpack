@@ -2,10 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/doriansobacki/agentpack/internal/config"
+	src "github.com/doriansobacki/agentpack/internal/source"
 	"github.com/spf13/cobra"
 )
 
@@ -24,12 +23,8 @@ func init() {
 			if source != "" {
 				// A local directory is stored as an absolute path so sync
 				// works from any working directory; URLs pass through.
-				if info, statErr := os.Stat(source); statErr == nil && info.IsDir() {
-					if abs, absErr := filepath.Abs(source); absErr == nil {
-						source = abs
-					}
-				}
-				cfg.Source = source
+				normalized, _ := src.NormalizeLocal(source)
+				cfg.Source = normalized
 			}
 			if cfg.Source == "" {
 				return fmt.Errorf("no org config source set; pass --source <git-url-or-path>")
