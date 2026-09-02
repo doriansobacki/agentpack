@@ -37,8 +37,18 @@ type Report struct {
 	Warnings     []string
 }
 
-// Sync runs one full sync cycle.
+// Sync runs one full sync cycle. Real syncs are serialized by a lock file so
+// an interactive run and a scheduled run cannot interleave writes; dry runs
+// write nothing and take no lock.
 func Sync(ctx context.Context, dryRun bool) (*Report, error) {
+	if !dryRun {
+		release, err := config.AcquireLock()
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
+
 	cfg, err := config.LoadUserConfig()
 	if err != nil {
 		return nil, err

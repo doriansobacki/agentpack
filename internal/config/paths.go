@@ -43,3 +43,9 @@ func CacheDir() string { return filepath.Join(Home(), "cache") }
 
 // GeneratedDir is where merged cross-tool outputs (e.g. AGENTS.md) are written.
 func GeneratedDir() string { return filepath.Join(Home(), "generated") }
+
+// LogsDir is where scheduled and watch-mode syncs append their logs.
+func LogsDir() string { return filepath.Join(Home(), "logs") }
+
+// LockPath is the lock file that serializes concurrent syncs.
+func LockPath() string { return filepath.Join(Home(), "sync.lock") }
