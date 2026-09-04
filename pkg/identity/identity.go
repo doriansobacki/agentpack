@@ -33,6 +33,12 @@ type Request struct {
 	// Only the static provider consumes it; IdP-backed providers should use
 	// their own directory instead.
 	StaticUsers map[string][]string
+	// Interactive reports whether the caller is attached to a user who can
+	// answer prompts. Providers that authenticate interactively (device-code
+	// flows) must not prompt when it is false — e.g. a sync running from a
+	// scheduler — and should return an error directing the user to sign in
+	// interactively instead.
+	Interactive bool
 }
 
 // Provider resolves the current user's identity and group memberships.

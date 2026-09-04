@@ -68,6 +68,7 @@ func Sync(ctx context.Context, dryRun bool) (*Report, error) {
 		Email:       cfg.Email,
 		Options:     org.Manifest.Identity.Options,
 		StaticUsers: org.Manifest.Users,
+		Interactive: true,
 	})
 	if err != nil {
 		return nil, err
