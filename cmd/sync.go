@@ -2,19 +2,36 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/doriansobacki/agentpack/internal/syncer"
+	"github.com/doriansobacki/agentpack/internal/synclog"
 	"github.com/spf13/cobra"
 )
 
 func init() {
 	var dryRun bool
+	var scheduled bool
 	syncCmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Fetch the org config, resolve your packs, and materialize them",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Scheduled runs are headless: one summary line to stdout, the
+			// same line appended to the sync log, real exit codes preserved.
+			if scheduled {
+				report, err := syncer.Sync(cmd.Context(), false)
+				if logErr := synclog.Append(report, err); logErr != nil {
+					fmt.Fprintln(os.Stderr, "warning: writing sync log:", logErr)
+				}
+				if err != nil {
+					return err
+				}
+				fmt.Println(synclog.Line(report, nil))
+				return nil
+			}
+
 			report, err := syncer.Sync(cmd.Context(), dryRun)
 			if err != nil {
 				return err
@@ -51,6 +68,7 @@ func init() {
 		},
 	}
 	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would change without writing anything")
+	syncCmd.Flags().BoolVar(&scheduled, "scheduled", false, "headless mode used by the OS scheduler: one summary line, appended to the sync log")
 	rootCmd.AddCommand(syncCmd)
 }
 

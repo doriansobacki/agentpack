@@ -49,6 +49,25 @@ agentpack sync
 `agentpack sync --dry-run` shows what would change; `agentpack status` shows
 the current profile and what the last sync produced.
 
+## Automatic sync
+
+Nobody should have to remember to run sync. Register agentpack with the
+operating system's own per-user scheduler — Windows Task Scheduler, macOS
+launchd, or Linux systemd user timers; no daemon, no admin rights:
+
+```sh
+agentpack service install --interval 5m
+agentpack service status      # the job as the OS scheduler sees it
+agentpack service uninstall
+```
+
+Scheduled runs are headless and append one summary line per sync to
+`<agentpack home>/logs/sync.log`. A lock file serializes concurrent syncs, so
+a manual `agentpack sync` and a scheduled one never interleave.
+
+For a foreground alternative (a terminal you keep open, a container), use
+`agentpack watch --interval 5m`, which backs off on repeated failures.
+
 ## The org config repository
 
 ```
